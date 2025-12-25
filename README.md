@@ -261,30 +261,29 @@ Authorization: Bearer your-secret-token
 
 ### OAuth 2.0 Authentication
 
-Full OAuth 2.0 support with two validation methods:
+Full OAuth 2.0 support with automatic validation method selection:
 
-- **Token Introspection** - For Keycloak, Auth0, Okta, and providers with introspection endpoints
-- **JWT Validation** - For Azure AD and OIDC providers using JWT access tokens with JWKS
+- **Token Introspection** - For Keycloak, Auth0, Okta, and providers with introspection endpoints (requires client credentials)
+- **Userinfo Validation** - For Google and providers that don't support introspection (works with opaque tokens)
 
-> **Note:** Google OAuth is not currently supported. Google uses opaque access tokens that cannot be validated via JWT or standard introspection. See [OAUTH.md](./OAUTH.md) for details.
+The server automatically selects the appropriate validation method based on your configuration.
 
 Enable OAuth with the `--enable-oauth` flag.
 
 #### Quick Start Examples
+
+**Google OAuth (Userinfo validation):**
+```bash
+export MCP_OAUTH_ISSUER_URL="https://accounts.google.com"
+
+node build/index.js --sse --enable-oauth
+```
 
 **Keycloak (Token introspection):**
 ```bash
 export MCP_OAUTH_ISSUER_URL="https://keycloak.example.com/realms/your-realm"
 export MCP_OAUTH_CLIENT_ID="mcp-server"
 export MCP_OAUTH_CLIENT_SECRET="your-client-secret"
-
-node build/index.js --sse --enable-oauth
-```
-
-**Azure AD (JWT validation):**
-```bash
-export MCP_OAUTH_ISSUER_URL="https://login.microsoftonline.com/{tenant-id}/v2.0"
-export MCP_OAUTH_AUDIENCE="api://your-app-id"
 
 node build/index.js --sse --enable-oauth
 ```
