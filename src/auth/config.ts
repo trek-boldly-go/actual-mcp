@@ -6,7 +6,7 @@
  */
 
 export type AuthMode = 'none' | 'bearer' | 'oauth';
-export type OAuthValidationMethod = 'introspection' | 'jwt' | 'auto';
+export type OAuthValidationMethod = 'introspection' | 'jwt' | 'userinfo' | 'auto';
 
 const parseIntEnv = (value: string | undefined, defaultValue: number): number => {
   if (value === undefined || value === '') {
@@ -50,18 +50,22 @@ export const MCP_OAUTH_CLIENT_SECRET = parseStringEnv(process.env.MCP_OAUTH_CLIE
 export const MCP_OAUTH_INTROSPECTION_URL = parseStringEnv(process.env.MCP_OAUTH_INTROSPECTION_URL);
 export const MCP_OAUTH_AUDIENCE = parseStringEnv(process.env.MCP_OAUTH_AUDIENCE);
 
-// OAuth validation method: 'introspection' | 'jwt' | 'auto' (default: 'auto')
-// - 'auto': Use introspection if client credentials provided, otherwise use JWT validation
+// OAuth validation method: 'introspection' | 'jwt' | 'userinfo' | 'auto' (default: 'auto')
+// - 'auto': Use introspection if client credentials provided, otherwise use JWT, then userinfo
 // - 'introspection': Force token introspection (requires client ID and secret)
 // - 'jwt': Force JWT validation via JWKS (no client credentials needed)
+// - 'userinfo': Validate tokens by calling the userinfo endpoint (works with opaque tokens like Google)
 const parseValidationMethod = (value: string | undefined): OAuthValidationMethod => {
   const normalized = (value ?? 'auto').toLowerCase();
-  if (normalized === 'introspection' || normalized === 'jwt' || normalized === 'auto') {
+  if (normalized === 'introspection' || normalized === 'jwt' || normalized === 'userinfo' || normalized === 'auto') {
     return normalized;
   }
   return 'auto';
 };
 export const MCP_OAUTH_VALIDATION_METHOD = parseValidationMethod(process.env.MCP_OAUTH_VALIDATION_METHOD);
+
+// Userinfo endpoint URL for token validation (optional, auto-discovered from issuer metadata)
+export const MCP_OAUTH_USERINFO_URL = parseStringEnv(process.env.MCP_OAUTH_USERINFO_URL);
 
 // JWKS URL for JWT validation (optional, auto-discovered from issuer metadata)
 export const MCP_OAUTH_JWKS_URL = parseStringEnv(process.env.MCP_OAUTH_JWKS_URL);

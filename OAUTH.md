@@ -4,12 +4,13 @@ This guide covers OAuth 2.0 authentication setup for the Actual MCP server, incl
 
 ## Overview
 
-The MCP server supports two OAuth token validation methods:
+The MCP server supports three OAuth token validation methods:
 
 | Method | Description | When to Use |
 |--------|-------------|-------------|
 | **Token Introspection** | Server-side validation via OAuth introspection endpoint (RFC 7662) | Keycloak, Auth0, Okta, or any provider with introspection support |
 | **JWT Validation** | Client-side validation using JWKS (JSON Web Key Set) | Azure AD or providers that issue JWT access tokens |
+| **Userinfo Validation** | Validates tokens by calling the userinfo endpoint | Google or providers with opaque (non-JWT) access tokens |
 
 ### Automatic Detection
 
@@ -17,6 +18,7 @@ By default (`MCP_OAUTH_VALIDATION_METHOD=auto`), the server automatically select
 
 1. **Introspection** if client credentials (`MCP_OAUTH_CLIENT_ID` and `MCP_OAUTH_CLIENT_SECRET`) are provided
 2. **JWT validation** if no credentials are provided but JWKS URI is available in the issuer metadata
+3. **Userinfo validation** if neither introspection nor JWT is available but userinfo endpoint exists
 
 ## Environment Variables Reference
 
@@ -42,11 +44,17 @@ By default (`MCP_OAUTH_VALIDATION_METHOD=auto`), the server automatically select
 | `MCP_OAUTH_EXPECTED_ISSUER` | Optional: Override expected issuer in JWT |
 | `MCP_OAUTH_AUDIENCE` | Expected audience claim in JWT |
 
+### For Userinfo Validation
+
+| Variable | Description |
+|----------|-------------|
+| `MCP_OAUTH_USERINFO_URL` | Optional: Override discovered userinfo endpoint |
+
 ### Validation Method Control
 
 | Variable | Values | Description |
 |----------|--------|-------------|
-| `MCP_OAUTH_VALIDATION_METHOD` | `auto`, `introspection`, `jwt` | Force a specific validation method |
+| `MCP_OAUTH_VALIDATION_METHOD` | `auto`, `introspection`, `jwt`, `userinfo` | Force a specific validation method |
 
 ### Advanced Settings
 
@@ -62,25 +70,32 @@ By default (`MCP_OAUTH_VALIDATION_METHOD=auto`), the server automatically select
 
 ## Provider-Specific Configurations
 
-### Google OAuth (Not Supported)
+### Google OAuth
 
-> **Google OAuth is not currently supported.** This section explains why and potential future solutions.
+Google uses opaque access tokens (not JWTs), so userinfo validation is required.
 
-Google's OAuth implementation is incompatible with this MCP server because:
+**Setup Steps:**
 
-1. **Opaque Access Tokens**: Google issues opaque access tokens (e.g., `ya29.a0AfH6SMBx...`) rather than JWTs. These cannot be validated using JWKS because they don't have the standard JWT `header.payload.signature` structure.
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable the OAuth 2.0 API
+3. Create OAuth 2.0 credentials (Web application type)
+4. Configure authorized redirect URIs for your MCP clients
 
-2. **No Standard Introspection**: Google does not provide an RFC 7662-compliant token introspection endpoint. Their `tokeninfo` endpoint uses a different format.
+**Environment Configuration:**
 
-3. **ID Tokens vs Access Tokens**: While Google does issue JWT ID tokens, these are meant for authentication (proving identity), not authorization (access to resources). Using ID tokens as access tokens is not recommended.
+```bash
+# Required
+export MCP_OAUTH_ISSUER_URL="https://accounts.google.com"
 
-**Potential Future Solutions:**
+# Recommended: Explicitly set userinfo validation (auto-detected if no JWKS/introspection)
+export MCP_OAUTH_VALIDATION_METHOD="userinfo"
+```
 
-- **Userinfo Endpoint Validation**: Validate tokens by calling Google's userinfo endpoint. If the call succeeds, the token is valid.
-- **TokenInfo Endpoint**: Add support for Google's proprietary tokeninfo endpoint format.
-- **ID Token Mode**: Support using ID tokens instead of access tokens (requires different OAuth flow).
-
-If you need Google OAuth support, please open an issue on the repository.
+**Notes:**
+- Google's userinfo endpoint is at `https://openidconnect.googleapis.com/v1/userinfo`
+- The server auto-discovers this from Google's OpenID configuration
+- Userinfo validation requires a network call for each request (no local validation)
+- Token expiry and scopes are not available via userinfo; the token is valid as long as the call succeeds
 
 ---
 

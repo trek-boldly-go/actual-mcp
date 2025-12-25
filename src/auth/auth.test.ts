@@ -11,8 +11,9 @@ const mockConfig = {
   MCP_OAUTH_CLIENT_SECRET: undefined as string | undefined,
   MCP_OAUTH_INTROSPECTION_URL: undefined as string | undefined,
   MCP_OAUTH_AUDIENCE: undefined as string | undefined,
-  MCP_OAUTH_VALIDATION_METHOD: 'auto' as 'introspection' | 'jwt' | 'auto',
+  MCP_OAUTH_VALIDATION_METHOD: 'auto' as 'introspection' | 'jwt' | 'userinfo' | 'auto',
   MCP_OAUTH_JWKS_URL: undefined as string | undefined,
+  MCP_OAUTH_USERINFO_URL: undefined as string | undefined,
   MCP_OAUTH_EXPECTED_ISSUER: undefined as string | undefined,
   MCP_OAUTH_DISCOVERY_RETRIES: 1,
   MCP_OAUTH_DISCOVERY_RETRY_DELAY_MS: 100,
@@ -51,6 +52,9 @@ vi.mock('./config.js', () => ({
   },
   get MCP_OAUTH_JWKS_URL() {
     return mockConfig.MCP_OAUTH_JWKS_URL;
+  },
+  get MCP_OAUTH_USERINFO_URL() {
+    return mockConfig.MCP_OAUTH_USERINFO_URL;
   },
   get MCP_OAUTH_EXPECTED_ISSUER() {
     return mockConfig.MCP_OAUTH_EXPECTED_ISSUER;
@@ -104,6 +108,7 @@ describe('auth module', () => {
     mockConfig.MCP_OAUTH_AUDIENCE = undefined;
     mockConfig.MCP_OAUTH_VALIDATION_METHOD = 'auto';
     mockConfig.MCP_OAUTH_JWKS_URL = undefined;
+    mockConfig.MCP_OAUTH_USERINFO_URL = undefined;
     mockConfig.MCP_OAUTH_EXPECTED_ISSUER = undefined;
   });
 
@@ -287,6 +292,91 @@ describe('auth module', () => {
           const context = await buildAuthContext({ enableOauth: true });
 
           expect(context.validationMethod).toBe('jwt');
+        });
+
+        it('should use userinfo validation when MCP_OAUTH_VALIDATION_METHOD is set to userinfo', async () => {
+          mockConfig.MCP_OAUTH_INTERNAL_ISSUER_URL = 'http://localhost:8080/realms/test';
+          mockConfig.MCP_OAUTH_VALIDATION_METHOD = 'userinfo';
+
+          // Mock metadata with userinfo_endpoint
+          global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                issuer: 'http://localhost:8080/realms/test',
+                authorization_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/auth',
+                token_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/token',
+                userinfo_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/userinfo',
+              }),
+          });
+
+          const context = await buildAuthContext({ enableOauth: true });
+
+          expect(context.mode).toBe('oauth');
+          expect(context.validationMethod).toBe('userinfo');
+        });
+
+        it('should fall back to userinfo when no JWKS or introspection available', async () => {
+          mockConfig.MCP_OAUTH_INTERNAL_ISSUER_URL = 'http://localhost:8080/realms/test';
+          // No client credentials, no JWKS - should fall back to userinfo
+
+          // Mock metadata with only userinfo_endpoint
+          global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                issuer: 'http://localhost:8080/realms/test',
+                authorization_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/auth',
+                token_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/token',
+                userinfo_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/userinfo',
+              }),
+          });
+
+          const context = await buildAuthContext({ enableOauth: true });
+
+          expect(context.mode).toBe('oauth');
+          expect(context.validationMethod).toBe('userinfo');
+        });
+
+        it('should throw error when userinfo is forced but no endpoint available', async () => {
+          mockConfig.MCP_OAUTH_INTERNAL_ISSUER_URL = 'http://localhost:8080/realms/test';
+          mockConfig.MCP_OAUTH_VALIDATION_METHOD = 'userinfo';
+
+          // Mock metadata without userinfo_endpoint
+          global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                issuer: 'http://localhost:8080/realms/test',
+                authorization_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/auth',
+                token_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/token',
+              }),
+          });
+
+          await expect(buildAuthContext({ enableOauth: true })).rejects.toThrow(
+            'Userinfo endpoint not available. Set MCP_OAUTH_USERINFO_URL or ensure issuer metadata includes userinfo_endpoint'
+          );
+        });
+
+        it('should use custom userinfo URL when provided', async () => {
+          mockConfig.MCP_OAUTH_INTERNAL_ISSUER_URL = 'http://localhost:8080/realms/test';
+          mockConfig.MCP_OAUTH_USERINFO_URL = 'http://custom-userinfo.example.com/userinfo';
+          mockConfig.MCP_OAUTH_VALIDATION_METHOD = 'userinfo';
+
+          // Mock metadata without userinfo_endpoint (using custom URL instead)
+          global.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                issuer: 'http://localhost:8080/realms/test',
+                authorization_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/auth',
+                token_endpoint: 'http://localhost:8080/realms/test/protocol/openid-connect/token',
+              }),
+          });
+
+          const context = await buildAuthContext({ enableOauth: true });
+
+          expect(context.validationMethod).toBe('userinfo');
         });
       });
 

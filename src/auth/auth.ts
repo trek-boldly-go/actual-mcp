@@ -24,6 +24,7 @@ import {
   MCP_OAUTH_INTERNAL_ISSUER_URL,
   MCP_OAUTH_JWKS_URL,
   MCP_OAUTH_PUBLIC_ISSUER_URL,
+  MCP_OAUTH_USERINFO_URL,
   MCP_OAUTH_VALIDATION_METHOD,
   MCP_AUTH_MODE,
   type AuthMode,
@@ -34,7 +35,7 @@ export interface AuthContext {
   mode: AuthMode;
   middleware: RequestHandler | null;
   oauthMetadata?: OAuthMetadata;
-  validationMethod?: 'introspection' | 'jwt';
+  validationMethod?: 'introspection' | 'jwt' | 'userinfo';
 }
 
 export interface AuthOptions {
@@ -210,18 +211,20 @@ const buildBearerAuthContext = (): AuthContext => {
 /**
  * Determines which validation method to use based on config and available metadata.
  *
- * @param method - Configured validation method ('auto', 'introspection', 'jwt')
+ * @param method - Configured validation method ('auto', 'introspection', 'jwt', 'userinfo')
  * @param hasClientCredentials - Whether client ID and secret are configured
  * @param hasIntrospectionEndpoint - Whether introspection endpoint is available
  * @param hasJwksUri - Whether JWKS URI is available
- * @returns The resolved validation method ('introspection' or 'jwt')
+ * @param hasUserinfoEndpoint - Whether userinfo endpoint is available
+ * @returns The resolved validation method ('introspection', 'jwt', or 'userinfo')
  */
 const resolveValidationMethod = (
   method: OAuthValidationMethod,
   hasClientCredentials: boolean,
   hasIntrospectionEndpoint: boolean,
-  hasJwksUri: boolean
-): 'introspection' | 'jwt' => {
+  hasJwksUri: boolean,
+  hasUserinfoEndpoint: boolean
+): 'introspection' | 'jwt' | 'userinfo' => {
   if (method === 'introspection') {
     if (!hasClientCredentials) {
       throw new Error('MCP_OAUTH_CLIENT_ID and MCP_OAUTH_CLIENT_SECRET are required for introspection validation.');
@@ -239,13 +242,26 @@ const resolveValidationMethod = (
     return 'jwt';
   }
 
-  // Auto mode: prefer introspection if credentials provided, otherwise use JWT
+  if (method === 'userinfo') {
+    if (!hasUserinfoEndpoint) {
+      throw new Error(
+        'Userinfo endpoint not available. Set MCP_OAUTH_USERINFO_URL or ensure issuer metadata includes userinfo_endpoint.'
+      );
+    }
+    return 'userinfo';
+  }
+
+  // Auto mode: prefer introspection if credentials provided, then JWT, then userinfo
   if (hasClientCredentials && hasIntrospectionEndpoint) {
     return 'introspection';
   }
 
   if (hasJwksUri) {
     return 'jwt';
+  }
+
+  if (hasUserinfoEndpoint) {
+    return 'userinfo';
   }
 
   if (hasClientCredentials) {
@@ -256,8 +272,9 @@ const resolveValidationMethod = (
   }
 
   throw new Error(
-    'OAuth auto-detection failed: no client credentials and no JWKS URI available. ' +
-      'Configure either client credentials for introspection or ensure jwks_uri is in issuer metadata.'
+    'OAuth auto-detection failed: no validation method available. ' +
+      'Configure client credentials for introspection, ensure jwks_uri is in issuer metadata for JWT, ' +
+      'or set MCP_OAUTH_USERINFO_URL for userinfo validation.'
   );
 };
 
@@ -408,6 +425,55 @@ const buildIntrospectionVerifier = (
   };
 };
 
+/**
+ * Creates a userinfo-based token verifier.
+ * Validates tokens by calling the userinfo endpoint - if the call succeeds, the token is valid.
+ * This works with opaque tokens (like Google's) that can't be validated via JWT or introspection.
+ */
+const buildUserinfoVerifier = (userinfoEndpoint: string): TokenVerifier => {
+  return {
+    verifyAccessToken: async (token: string) => {
+      try {
+        const response = await fetch(userinfoEndpoint, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            console.error('Userinfo validation failed: token rejected (401 Unauthorized)');
+            throw new InvalidTokenError('Token rejected by userinfo endpoint');
+          }
+          const text = await response.text().catch(() => '');
+          console.error(`Userinfo validation HTTP error: ${response.status} ${response.statusText} - ${text}`);
+          throw new InvalidTokenError(`Userinfo validation failed: HTTP ${response.status}`);
+        }
+
+        const userinfo = (await response.json()) as Record<string, unknown>;
+
+        // Extract user identifier from standard claims
+        const subject = typeof userinfo.sub === 'string' ? userinfo.sub : 'unknown-user';
+
+        // Note: userinfo endpoint doesn't provide token expiry or scopes
+        // The token is valid as long as the userinfo call succeeds
+        return {
+          token,
+          clientId: subject,
+          scopes: [], // Userinfo doesn't return scopes
+          expiresAt: undefined, // Userinfo doesn't return expiry
+        };
+      } catch (error) {
+        if (error instanceof InvalidTokenError) {
+          throw error;
+        }
+        console.error(`Userinfo validation exception: ${String(error)}`);
+        throw new InvalidTokenError('Userinfo validation failed');
+      }
+    },
+  };
+};
+
 const isGoogleIssuer = (issuerUrl: string): boolean => {
   try {
     const url = new URL(issuerUrl);
@@ -423,14 +489,6 @@ const buildOAuthAuthContext = async (mcpPublicUrl: URL): Promise<AuthContext> =>
     throw new Error('MCP_OAUTH_INTERNAL_ISSUER_URL (or MCP_OAUTH_ISSUER_URL) is required when auth mode is oauth.');
   }
 
-  // Warn about unsupported Google OAuth
-  if (isGoogleIssuer(internalIssuerString)) {
-    console.error(
-      'WARNING: Google OAuth is not supported. Google uses opaque access tokens that cannot be ' +
-        'validated via JWT or standard introspection. See OAUTH.md for details and alternatives.'
-    );
-  }
-
   const issuer = new URL(internalIssuerString);
   const discoveredMetadata = await discoverOAuthMetadata(issuer);
   const oauthMetadata = rewriteOAuthMetadataIssuer(discoveredMetadata, MCP_OAUTH_PUBLIC_ISSUER_URL);
@@ -438,6 +496,7 @@ const buildOAuthAuthContext = async (mcpPublicUrl: URL): Promise<AuthContext> =>
   // Determine available endpoints and credentials
   const introspectionEndpoint = MCP_OAUTH_INTROSPECTION_URL ?? discoveredMetadata.introspection_endpoint;
   const jwksUri = MCP_OAUTH_JWKS_URL ?? discoveredMetadata.jwks_uri;
+  const userinfoEndpoint = MCP_OAUTH_USERINFO_URL ?? (discoveredMetadata.userinfo_endpoint as string | undefined);
   const hasClientCredentials =
     MCP_OAUTH_CLIENT_ID !== undefined &&
     MCP_OAUTH_CLIENT_ID !== '' &&
@@ -445,13 +504,23 @@ const buildOAuthAuthContext = async (mcpPublicUrl: URL): Promise<AuthContext> =>
     MCP_OAUTH_CLIENT_SECRET !== '';
   const hasIntrospectionEndpoint = introspectionEndpoint !== undefined && introspectionEndpoint !== '';
   const hasJwksUri = jwksUri !== undefined && jwksUri !== '';
+  const hasUserinfoEndpoint = userinfoEndpoint !== undefined && userinfoEndpoint !== '';
+
+  // Log info about Google OAuth detection
+  if (isGoogleIssuer(internalIssuerString)) {
+    console.error(
+      'Google OAuth detected. Note: Google uses opaque access tokens. ' +
+        'Using userinfo validation (recommended) or ensure MCP_OAUTH_VALIDATION_METHOD=userinfo is set.'
+    );
+  }
 
   // Resolve which validation method to use
   const validationMethod = resolveValidationMethod(
     MCP_OAUTH_VALIDATION_METHOD,
     hasClientCredentials,
     hasIntrospectionEndpoint,
-    hasJwksUri
+    hasJwksUri,
+    hasUserinfoEndpoint
   );
 
   console.error(`OAuth validation method: ${validationMethod}`);
@@ -467,6 +536,10 @@ const buildOAuthAuthContext = async (mcpPublicUrl: URL): Promise<AuthContext> =>
       MCP_OAUTH_EXPECTED_ISSUER ?? MCP_OAUTH_PUBLIC_ISSUER_URL ?? discoveredMetadata.issuer ?? internalIssuerString;
     console.error(`JWT validation: JWKS URL: ${jwksUrl.href}, Expected issuer: ${expectedIssuer}`);
     verifier = buildJwtVerifier(jwksUrl, expectedIssuer, MCP_OAUTH_AUDIENCE);
+  } else if (validationMethod === 'userinfo') {
+    // Userinfo endpoint validation (works with opaque tokens like Google's)
+    console.error(`Userinfo validation: endpoint: ${userinfoEndpoint}`);
+    verifier = buildUserinfoVerifier(userinfoEndpoint!);
   } else {
     // Token introspection
     console.error(`Token introspection: endpoint: ${introspectionEndpoint}`);
