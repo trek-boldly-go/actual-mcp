@@ -318,11 +318,31 @@ async function main(): Promise<void> {
       next();
     };
 
+    // Wrap auth middleware to catch and log any errors
+    const wrappedAuthMiddleware = (req: Request, res: Response, next: () => void): void => {
+      console.error(`[DEBUG] Calling auth middleware...`);
+      try {
+        authMiddleware!(req, res, () => {
+          console.error(`[DEBUG] Auth middleware called next()`);
+          next();
+        });
+      } catch (error) {
+        console.error(`[DEBUG] Auth middleware threw sync error:`, error);
+        throw error;
+      }
+    };
+
     // Register streamable paths with optional auth middleware
     if (authMiddleware) {
-      app.all(streamablePaths, debugMiddleware, authMiddleware, postAuthMiddleware, (req: Request, res: Response) => {
-        void handleStreamable(req, res);
-      });
+      app.all(
+        streamablePaths,
+        debugMiddleware,
+        wrappedAuthMiddleware,
+        postAuthMiddleware,
+        (req: Request, res: Response) => {
+          void handleStreamable(req, res);
+        }
+      );
     } else {
       app.all(streamablePaths, (req: Request, res: Response) => {
         void handleStreamable(req, res);

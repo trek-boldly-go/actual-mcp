@@ -202,12 +202,14 @@ const buildOidcTokenVerifier = (config: client.Configuration, useIntrospection: 
           const userinfo = await client.fetchUserInfo(config, token, client.skipSubjectCheck);
           console.error(`[DEBUG] Userinfo response: sub=${userinfo.sub}, email=${userinfo.email}`);
 
-          return {
+          const result = {
             token,
             clientId: userinfo.sub ?? 'unknown',
-            scopes: [], // Userinfo doesn't return scopes
-            expiresAt: undefined, // Userinfo doesn't return expiry
+            scopes: [] as string[],
+            expiresAt: undefined as number | undefined,
           };
+          console.error(`[DEBUG] Returning verifier result: ${JSON.stringify(result)}`);
+          return result;
         }
       } catch (error) {
         console.error(`[DEBUG] Token validation error:`, error);
