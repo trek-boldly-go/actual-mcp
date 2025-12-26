@@ -207,6 +207,7 @@ async function main(): Promise<void> {
 
     const handleStreamable = async (req: Request, res: Response): Promise<void> => {
       console.error(`[DEBUG] handleStreamable called: ${req.method} ${req.path}`);
+      console.error(`[DEBUG] Request body: ${JSON.stringify(req.body)}`);
       const sessionHeader = parseSessionHeader(req.headers['mcp-session-id']);
       console.error(`[DEBUG] Session header: ${sessionHeader ?? 'none'}`);
       if (req.method === 'GET' && !sessionHeader && req.headers.accept?.includes('text/event-stream')) {
@@ -286,6 +287,7 @@ async function main(): Promise<void> {
         }
 
         await streamableTransport.handleRequest(req, res, req.body);
+        console.error(`[DEBUG] After handleRequest: headersSent=${res.headersSent}, statusCode=${res.statusCode}`);
       } catch (error) {
         console.error(`Streamable HTTP handler error for ${requestLabel}: ${toErrorMessage(error)}`);
 
