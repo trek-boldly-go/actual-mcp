@@ -144,6 +144,15 @@ async function main(): Promise<void> {
     });
 
     const app = express();
+
+    // Global request logger - logs ALL requests before any routing
+    app.use((req, _res, next) => {
+      console.error(
+        `[REQUEST] ${req.method} ${req.path} - Auth: ${req.headers.authorization ? 'yes' : 'no'}, Session: ${req.headers['mcp-session-id'] ?? 'none'}`
+      );
+      next();
+    });
+
     app.use(express.json());
     let transport: SSEServerTransport | null = null;
 
