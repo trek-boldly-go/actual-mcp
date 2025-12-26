@@ -321,17 +321,12 @@ async function main(): Promise<void> {
     };
 
     // Wrap auth middleware to catch and log any errors (handles async)
-    // Skip auth if request has a valid session ID (session already authenticated)
     const wrappedAuthMiddleware = async (req: Request, res: Response, next: () => void): Promise<void> => {
       const sessionId = parseSessionHeader(req.headers['mcp-session-id']);
-      console.error(`[DEBUG] Calling auth middleware... (sessionId: ${sessionId ?? 'none'})`);
-
-      // If request has a session ID and that session exists, skip token auth
-      if (sessionId && streamableHttpTransports.has(sessionId)) {
-        console.error(`[DEBUG] Valid session ID found, skipping token auth`);
-        next();
-        return;
-      }
+      const authHeader = req.headers.authorization;
+      console.error(
+        `[DEBUG] Auth check: method=${req.method}, sessionId=${sessionId ?? 'none'}, hasAuth=${!!authHeader}`
+      );
 
       try {
         const result = authMiddleware!(req, res, () => {
