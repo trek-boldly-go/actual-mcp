@@ -206,7 +206,8 @@ const buildOidcTokenVerifier = (config: client.Configuration, useIntrospection: 
             token,
             clientId: userinfo.sub ?? 'unknown',
             scopes: [] as string[],
-            expiresAt: undefined as number | undefined,
+            // Set expiration to 1 hour from now (userinfo doesn't provide expiry)
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
           };
           console.error(`[DEBUG] Returning verifier result: ${JSON.stringify(result)}`);
           return result;
