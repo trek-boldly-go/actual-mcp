@@ -177,6 +177,8 @@ const buildBearerAuthContext = (): AuthContext => {
 const buildOidcTokenVerifier = (config: client.Configuration, useIntrospection: boolean): TokenVerifier => {
   return {
     verifyAccessToken: async (token: string): Promise<TokenVerifierResult> => {
+      console.error(`[DEBUG] Verifying token (method: ${useIntrospection ? 'introspection' : 'userinfo'})`);
+      console.error(`[DEBUG] Token prefix: ${token.substring(0, 20)}...`);
       try {
         if (useIntrospection) {
           // Token introspection (requires client credentials)
@@ -196,7 +198,9 @@ const buildOidcTokenVerifier = (config: client.Configuration, useIntrospection: 
         } else {
           // Userinfo validation (works with opaque tokens like Google's)
           // Use skipSubjectCheck since we don't have a prior subject to verify
+          console.error(`[DEBUG] Calling userinfo endpoint...`);
           const userinfo = await client.fetchUserInfo(config, token, client.skipSubjectCheck);
+          console.error(`[DEBUG] Userinfo response: sub=${userinfo.sub}, email=${userinfo.email}`);
 
           return {
             token,
@@ -206,12 +210,13 @@ const buildOidcTokenVerifier = (config: client.Configuration, useIntrospection: 
           };
         }
       } catch (error) {
+        console.error(`[DEBUG] Token validation error:`, error);
         if (error instanceof InvalidTokenError) {
           throw error;
         }
 
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`Token validation failed: ${message}`);
+        console.error(`[DEBUG] Token validation failed: ${message}`);
 
         // Provide user-friendly error messages
         if (message.includes('401') || message.includes('unauthorized')) {
