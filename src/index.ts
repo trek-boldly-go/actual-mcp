@@ -206,7 +206,9 @@ async function main(): Promise<void> {
     const streamablePaths = ['/', '/mcp'];
 
     const handleStreamable = async (req: Request, res: Response): Promise<void> => {
+      console.error(`[DEBUG] handleStreamable called: ${req.method} ${req.path}`);
       const sessionHeader = parseSessionHeader(req.headers['mcp-session-id']);
+      console.error(`[DEBUG] Session header: ${sessionHeader ?? 'none'}`);
       if (req.method === 'GET' && !sessionHeader && req.headers.accept?.includes('text/event-stream')) {
         handleLegacySse(req, res);
         return;
@@ -310,9 +312,15 @@ async function main(): Promise<void> {
       next();
     };
 
+    // Debug middleware to log after auth succeeds
+    const postAuthMiddleware = (req: Request, _res: Response, next: () => void): void => {
+      console.error(`[DEBUG] Auth passed, proceeding to handler for ${req.method} ${req.path}`);
+      next();
+    };
+
     // Register streamable paths with optional auth middleware
     if (authMiddleware) {
-      app.all(streamablePaths, debugMiddleware, authMiddleware, (req: Request, res: Response) => {
+      app.all(streamablePaths, debugMiddleware, authMiddleware, postAuthMiddleware, (req: Request, res: Response) => {
         void handleStreamable(req, res);
       });
     } else {
