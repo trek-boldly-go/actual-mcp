@@ -318,16 +318,22 @@ async function main(): Promise<void> {
       next();
     };
 
-    // Wrap auth middleware to catch and log any errors
-    const wrappedAuthMiddleware = (req: Request, res: Response, next: () => void): void => {
+    // Wrap auth middleware to catch and log any errors (handles async)
+    const wrappedAuthMiddleware = async (req: Request, res: Response, next: () => void): Promise<void> => {
       console.error(`[DEBUG] Calling auth middleware...`);
       try {
-        authMiddleware!(req, res, () => {
+        const result = authMiddleware!(req, res, () => {
           console.error(`[DEBUG] Auth middleware called next()`);
           next();
         });
+        // Handle if middleware returns a promise
+        if (result && typeof (result as Promise<void>).then === 'function') {
+          await (result as Promise<void>);
+          console.error(`[DEBUG] Auth middleware promise resolved`);
+        }
+        console.error(`[DEBUG] After auth middleware: headersSent=${res.headersSent}, statusCode=${res.statusCode}`);
       } catch (error) {
-        console.error(`[DEBUG] Auth middleware threw sync error:`, error);
+        console.error(`[DEBUG] Auth middleware error:`, error);
         throw error;
       }
     };
