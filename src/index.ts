@@ -300,9 +300,19 @@ async function main(): Promise<void> {
       }
     };
 
+    // Debug middleware to log incoming requests (before auth)
+    const debugMiddleware = (req: Request, _res: Response, next: () => void): void => {
+      const authHeader = req.headers.authorization;
+      console.error(`[DEBUG] ${req.method} ${req.path}`);
+      console.error(
+        `[DEBUG] Authorization header: ${authHeader ? `Bearer ${authHeader.substring(7, 20)}...` : 'MISSING'}`
+      );
+      next();
+    };
+
     // Register streamable paths with optional auth middleware
     if (authMiddleware) {
-      app.all(streamablePaths, authMiddleware, (req: Request, res: Response) => {
+      app.all(streamablePaths, debugMiddleware, authMiddleware, (req: Request, res: Response) => {
         void handleStreamable(req, res);
       });
     } else {
