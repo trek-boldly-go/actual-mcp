@@ -163,6 +163,30 @@ async function main(): Promise<void> {
       console.error(
         `[REQUEST] ${req.method} ${req.path} - Auth: ${req.headers.authorization ? 'yes' : 'no'}, Session: ${req.headers['mcp-session-id'] ?? 'none'}`
       );
+      console.error(`[REQUEST] Accept: ${req.headers.accept ?? 'none'}`);
+      next();
+    });
+
+    // Response interceptor to log what we're sending back
+    app.use((req, res, next) => {
+      const originalEnd = res.end.bind(res);
+
+      // Intercept when headers are sent
+      res.on('finish', () => {
+        console.error(`[RESPONSE] ${req.method} ${req.path} - Status: ${res.statusCode}`);
+        console.error(`[RESPONSE] Headers: ${JSON.stringify(res.getHeaders())}`);
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (res as any).end = (chunk?: unknown, encoding?: BufferEncoding, callback?: () => void) => {
+        if (chunk) {
+          const data = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : '[binary]';
+          console.error(`[RESPONSE] Body: ${data.substring(0, 500)}${data.length > 500 ? '...' : ''}`);
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (originalEnd as any)(chunk, encoding, callback);
+      };
+
       next();
     });
 
