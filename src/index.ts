@@ -245,6 +245,7 @@ async function main(): Promise<void> {
             const remoteAddress = req.ip ?? req.socket.remoteAddress ?? 'unknown';
             streamableTransport = new StreamableHTTPServerTransport({
               sessionIdGenerator: () => randomUUID(),
+              enableJsonResponse: true, // Return JSON instead of SSE for single responses
               onsessioninitialized: (sessionId) => {
                 streamableHttpTransports.set(sessionId, streamableTransport!);
                 console.info(`Streamable HTTP session initialized (session ${sessionId}) from ${remoteAddress}`);
