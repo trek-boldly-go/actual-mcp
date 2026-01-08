@@ -15,6 +15,7 @@ import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { mcpAuthMetadataRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -144,6 +145,18 @@ async function main(): Promise<void> {
     });
 
     const app = express();
+
+    // CORS configuration - required for browser-based MCP clients like Claude.ai
+    app.use(
+      cors({
+        origin: true, // Reflect the request origin (allows any origin with credentials)
+        methods: ['GET', 'POST', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id', 'Accept'],
+        exposedHeaders: ['Mcp-Session-Id'], // Critical: allows browser to read session ID
+        credentials: true,
+        maxAge: 86400, // Cache preflight for 24 hours
+      })
+    );
 
     // Global request logger - logs ALL requests before any routing
     app.use((req, _res, next) => {
