@@ -256,8 +256,17 @@ async function main(): Promise<void> {
       console.error(`[DEBUG] Request body: ${JSON.stringify(req.body)}`);
       const sessionHeader = parseSessionHeader(req.headers['mcp-session-id']);
       console.error(`[DEBUG] Session header: ${sessionHeader ?? 'none'}`);
+      // Disabled legacy SSE fallback - was causing SEGFAULT
+      // Claude and modern MCP clients should use Streamable HTTP (POST)
       if (req.method === 'GET' && !sessionHeader && req.headers.accept?.includes('text/event-stream')) {
-        handleLegacySse(req, res);
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: 'Legacy SSE not supported. Use Streamable HTTP transport (POST requests).',
+          },
+          id: null,
+        });
         return;
       }
       const requestLabel = `${req.method} ${req.path}`;
